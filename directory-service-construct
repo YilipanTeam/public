@@ -1,51 +1,28 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as fsx from 'aws-cdk-lib/aws-fsx';
 import { Construct } from 'constructs';
-import { DirectoryServiceConstruct } from '../ad/directory-service-construct';
+import * as directoryservice from 'aws-cdk-lib/aws-directoryservice';
 
-export interface FsxConstructProps {
+export interface DirectoryServiceConstructProps {
   vpc: ec2.Vpc;
   privateSubnets: ec2.ISubnet[];
-  directoryService: DirectoryServiceConstruct;
 }
 
-export class FsxConstruct extends Construct {
-  constructor(scope: Construct, id: string, props: FsxConstructProps) {
+export class DirectoryServiceConstruct extends Construct {
+  public readonly directoryService: directoryservice.CfnSimpleAD;
+
+  constructor(scope: Construct, id: string, props: DirectoryServiceConstructProps) {
     super(scope, id);
 
-
-    // 创建 FSx 安全组
-    const fsxSecurityGroupName = 'MyFsxSecurityGroup';
-    const fsxSecurityGroup = new ec2.SecurityGroup(this, 'fsxSecurityGroup', {
-      vpc: props.vpc,
-      securityGroupName: fsxSecurityGroupName,
-      description: 'Security group for FSx',
-    });
-    cdk.Tags.of(fsxSecurityGroup).add('Name', fsxSecurityGroupName);
-
-    // 向安全组添加入站规则以允许访问 FSx 端口
-    fsxSecurityGroup.addIngressRule(ec2.Peer.ipv4(props.vpc.vpcCidrBlock), ec2.Port.tcp(445), 'Allow FSx traffic');
-
-    // 创建 FSx for Windows 文件系统
-    const fsxFileSystem = new fsx.CfnFileSystem(this, 'fsxFileSystem', {
-      fileSystemType: 'WINDOWS',
-      storageCapacity: 300,
-      subnetIds: [props.privateSubnets[0].subnetId],
-      securityGroupIds: [fsxSecurityGroup.securityGroupId],
-      windowsConfiguration: {
-      activeDirectoryId: props.directoryService.directoryService.ref,
-        throughputCapacity: 8,
-        automaticBackupRetentionDays: 7,
-        dailyAutomaticBackupStartTime: '01:00',
-        weeklyMaintenanceStartTime: '1d:01:00',
+    // 创建 Simple AD
+    this.directoryService = new directoryservice.CfnSimpleAD(this, 'SimpleAD', {
+      name: 'mydomain',
+      password: 'YourSecurePassword123!',
+      size: 'Small',
+      vpcSettings: {
+        vpcId: props.vpc.vpcId,
+        subnetIds: props.privateSubnets.map(subnet => subnet.subnetId),
       },
-    });
-
-    // 输出 FSx 文件系统的 DNS 名称
-    new cdk.CfnOutput(this, 'fsxDnsName', {
-      value: fsxFileSystem.attrDnsName,
-      description: 'FSx for Windows File System DNS Name',
     });
   }
 }
