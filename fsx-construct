@@ -1,0 +1,51 @@
+import * as cdk from 'aws-cdk-lib';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as fsx from 'aws-cdk-lib/aws-fsx';
+import { Construct } from 'constructs';
+import { DirectoryServiceConstruct } from '../ad/directory-service-construct';
+
+export interface FsxConstructProps {
+  vpc: ec2.Vpc;
+  privateSubnets: ec2.ISubnet[];
+  directoryService: DirectoryServiceConstruct;
+}
+
+export class FsxConstruct extends Construct {
+  constructor(scope: Construct, id: string, props: FsxConstructProps) {
+    super(scope, id);
+
+
+    // 创建 FSx 安全组
+    const fsxSecurityGroupName = 'MyFsxSecurityGroup';
+    const fsxSecurityGroup = new ec2.SecurityGroup(this, 'fsxSecurityGroup', {
+      vpc: props.vpc,
+      securityGroupName: fsxSecurityGroupName,
+      description: 'Security group for FSx',
+    });
+    cdk.Tags.of(fsxSecurityGroup).add('Name', fsxSecurityGroupName);
+
+    // 向安全组添加入站规则以允许访问 FSx 端口
+    fsxSecurityGroup.addIngressRule(ec2.Peer.ipv4(props.vpc.vpcCidrBlock), ec2.Port.tcp(445), 'Allow FSx traffic');
+
+    // 创建 FSx for Windows 文件系统
+    const fsxFileSystem = new fsx.CfnFileSystem(this, 'fsxFileSystem', {
+      fileSystemType: 'WINDOWS',
+      storageCapacity: 300,
+      subnetIds: [props.privateSubnets[0].subnetId],
+      securityGroupIds: [fsxSecurityGroup.securityGroupId],
+      windowsConfiguration: {
+      activeDirectoryId: props.directoryService.directoryService.ref,
+        throughputCapacity: 8,
+        automaticBackupRetentionDays: 7,
+        dailyAutomaticBackupStartTime: '01:00',
+        weeklyMaintenanceStartTime: '1d:01:00',
+      },
+    });
+
+    // 输出 FSx 文件系统的 DNS 名称
+    new cdk.CfnOutput(this, 'fsxDnsName', {
+      value: fsxFileSystem.attrDnsName,
+      description: 'FSx for Windows File System DNS Name',
+    });
+  }
+}
